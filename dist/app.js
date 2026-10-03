@@ -1,5 +1,5 @@
 import { chileSort } from './chilesort.js';
-import { CARD_WIDTH, CARD_HEIGHT, ROW_PITCH, MIN_GRID_WIDTH, canvasHeight, columnPositions, shuffleOrder, gridPositions, gridHeight } from './layout.js';
+import { CARD_WIDTH, ROW_PITCH, MIN_GRID_WIDTH, canvasHeight, columnPositions, shuffleOrder, gridPositions, gridHeight } from './layout.js';
 
 const $ = id => document.getElementById(id);
 const input = $('items');
@@ -23,7 +23,7 @@ let gridOrder = [];
 let followFrame = 0;
 let resetFrame = 0;
 let followTarget = 0;
-let followedCard = null;
+let followCards = null;
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const cardTilt = index => [-3, 2, -2, 3, 1, -1][index % 6];
 
@@ -32,11 +32,7 @@ function stopFollowing() {
   cancelAnimationFrame(resetFrame);
   followFrame = 0;
   resetFrame = 0;
-  followedCard = null;
-}
-
-function followCard(card) {
-  followedCard = card;
+  followCards = null;
 }
 
 function scrollToTop(currentRun) {
@@ -52,44 +48,37 @@ function scrollToTop(currentRun) {
   resetFrame = requestAnimationFrame(frame);
 }
 
-async function waitForScrollRoom(index, currentRun) {
-  if (reducedMotion.matches) return currentRun === run;
-  const bottom = 44 + index * ROW_PITCH + CARD_HEIGHT;
-  while (currentRun === run && mode === 'running') {
-    // Keep the pipeline inside the viewport and pause when the camera falls behind.
-    if (bottom <= stage.scrollTop + stage.clientHeight * .9 && followTarget - stage.scrollTop <= 24) return true;
-    await new Promise(resolve => requestAnimationFrame(resolve));
-  }
-  return false;
-}
-
 function updateFollowTarget() {
-  if (!followedCard) return;
-  // Only settled cards become the camera target.
-  const bottom = followedCard.getBoundingClientRect().bottom - stage.getBoundingClientRect().top - stage.clientTop + stage.scrollTop;
-  followTarget = Math.max(followTarget, 0, Math.min(stage.scrollHeight - stage.clientHeight, bottom - stage.clientHeight * .7));
+  if (!followCards?.length) return;
+  const centerX = canvas.getBoundingClientRect().left + canvas.clientWidth / 2;
+  const top = stage.getBoundingClientRect().top + stage.clientTop;
+  let frontier = 0;
+  // Follow the visible column as it forms, including cards still moving into it.
+  // Cards that have not reached the column must not pull the view into empty space.
+  for (const card of followCards) {
+    const bounds = card.getBoundingClientRect();
+    if (bounds.left > centerX || bounds.right < centerX) continue;
+    frontier = Math.max(frontier, bounds.top + bounds.height / 2 - top + stage.scrollTop);
+  }
+  followTarget = Math.max(followTarget, 0, Math.min(stage.scrollHeight - stage.clientHeight, frontier - stage.clientHeight / 2));
 }
 
-function startFollowing(currentRun) {
+function startFollowing(currentRun, cards) {
   stopFollowing();
+  followCards = cards;
   followTarget = 0;
   if (reducedMotion.matches) { stage.scrollTop = 0; return; }
-  let previousTime = performance.now();
-  const frame = time => {
+  const frame = () => {
     if (currentRun !== run || mode !== 'running') { stopFollowing(); return; }
     updateFollowTarget();
-    const remaining = followTarget - stage.scrollTop;
-    const easing = 1 - Math.exp(-(time - previousTime) / 30);
-    previousTime = time;
-    const step = Math.sign(remaining) * Math.max(1, Math.abs(remaining * easing));
-    stage.scrollTop = Math.abs(remaining) < 1 ? followTarget : stage.scrollTop + step;
+    stage.scrollTop = followTarget;
     followFrame = requestAnimationFrame(frame);
   };
   followFrame = requestAnimationFrame(frame);
 }
 
 async function finishFollowing(currentRun) {
-  followedCard = null;
+  followCards = null;
   followTarget = Math.max(0, stage.scrollHeight - stage.clientHeight);
   if (reducedMotion.matches) stage.scrollTop = followTarget;
   else await new Promise(resolve => {
@@ -257,26 +246,22 @@ async function sort() {
   const duration = reducedMotion.matches ? 0 : Math.min(1400, cards.length * 65);
   const started = performance.now();
   const movements = [];
-  let lastCompletedIndex = -1;
-  startFollowing(currentRun);
+  const movingCards = [];
+  startFollowing(currentRun, movingCards);
   for (let index = 0; index < cards.length; index++) {
     const delay = cards.length <= 1 ? 0 : index * duration / (cards.length - 1);
     if (!reducedMotion.matches) await wait(Math.max(0, delay - (performance.now() - started)));
     if (currentRun !== run) return { cancelled: true };
-    if (!await waitForScrollRoom(index, currentRun)) return { cancelled: true };
     const target = { x: (canvas.clientWidth - CARD_WIDTH) / 2, y: 44 + index * ROW_PITCH, angle: 0 };
     positions[index] = target;
     applyPosition(cards[index], target);
     cards[index].classList.add('chilean');
     // Read animations after the style change so the transform transition exists.
     const transitions = cards[index].getAnimations().filter(animation => animation.transitionProperty === 'transform');
+    movingCards.push(cards[index]);
     movements.push(Promise.all(transitions.map(animation => animation.finished)).then(() => {
       if (currentRun !== run || mode !== 'running') return;
       cards[index].classList.add('settled');
-      if (index > lastCompletedIndex) {
-        lastCompletedIndex = index;
-        followCard(cards[index]);
-      }
     }).catch(() => { /* Reset or a layout change can cancel a transition. */ }));
   }
   await Promise.all(movements);
