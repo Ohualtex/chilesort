@@ -1,5 +1,5 @@
 import { chileSort } from './chilesort.js';
-import { CARD_WIDTH, CARD_HEIGHT, ROW_PITCH, MIN_GRID_WIDTH, canvasHeight, columnPositions, shuffleOrder, gridPositions, gridHeight } from './layout.js';
+import { CARD_WIDTH, ROW_PITCH, MIN_GRID_WIDTH, canvasHeight, columnPositions, shuffleOrder, gridPositions, gridHeight } from './layout.js';
 
 const $ = id => document.getElementById(id);
 const input = $('items');
@@ -22,37 +22,43 @@ let arrangement = 'grid';
 let gridOrder = [];
 let followFrame = 0;
 let followTarget = 0;
+let followedCard = null;
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const cardTilt = index => [-3, 2, -2, 3, 1, -1][index % 6];
 
 function stopFollowing() {
   cancelAnimationFrame(followFrame);
   followFrame = 0;
+  followedCard = null;
 }
 
-function followCard(y) {
-  followTarget = Math.max(0, Math.min(stage.scrollHeight - stage.clientHeight, y + CARD_HEIGHT - stage.clientHeight * .7));
-  if (reducedMotion.matches) stage.scrollTop = followTarget;
+function followCard(card) {
+  followedCard = card;
+}
+
+function updateFollowTarget() {
+  if (!followedCard) return;
+  // Measure the CSS transition's rendered position, rather than its destination.
+  const bottom = followedCard.getBoundingClientRect().bottom - stage.getBoundingClientRect().top - stage.clientTop + stage.scrollTop;
+  followTarget = Math.max(followTarget, 0, Math.min(stage.scrollHeight - stage.clientHeight, bottom - stage.clientHeight * .7));
 }
 
 function startFollowing(currentRun) {
   stopFollowing();
   followTarget = 0;
   if (reducedMotion.matches) { stage.scrollTop = 0; return; }
-  let previousTime = performance.now();
-  const frame = time => {
+  const frame = () => {
     if (currentRun !== run || mode !== 'running') { stopFollowing(); return; }
-    const remaining = followTarget - stage.scrollTop;
-    const easing = 1 - Math.exp(-(time - previousTime) / 90);
-    previousTime = time;
-    const step = Math.sign(remaining) * Math.max(1, Math.abs(remaining * easing));
-    stage.scrollTop = Math.abs(remaining) < 1 ? followTarget : stage.scrollTop + step;
+    updateFollowTarget();
+    // The card's own transition supplies easing; a second easing would lose it.
+    stage.scrollTop = followTarget;
     followFrame = requestAnimationFrame(frame);
   };
   followFrame = requestAnimationFrame(frame);
 }
 
 async function finishFollowing(currentRun) {
+  followedCard = null;
   followTarget = Math.max(0, stage.scrollHeight - stage.clientHeight);
   if (reducedMotion.matches) stage.scrollTop = followTarget;
   else await new Promise(resolve => {
@@ -227,7 +233,7 @@ async function sort() {
     positions[index] = target;
     applyPosition(cards[index], target);
     cards[index].classList.add('chilean');
-    followCard(target.y);
+    followCard(cards[index]);
   }
   await wait(reducedMotion.matches ? 0 : 650);
   if (currentRun !== run) return { cancelled: true };
