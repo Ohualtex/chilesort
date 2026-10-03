@@ -43,6 +43,9 @@ There is no count or height slider. The themed scrollbars navigate overflowing c
 The input and output scroll internally when their content exceeds the default height.
 Shuffle exchanges the same cards between existing grid slots without changing input order.
 Sort moves those same cards directly into a column; shuffle or reset to play again.
+The canvas smoothly follows the column south during sorting. Once the final card
+settles, the view reaches the bottom and the CERTIFIED LONG & NARROW stamp appears.
+Reset cancels the follow animation. Reduced-motion preferences skip animated scrolling.
 Reset restores the four-column grid. Shuffle preserves its rows, columns, and slot positions.
 Reduced-motion preferences are respected. Interface content is rendered as text.
 Clearing the entire input removes all cards and displays **Chile exists :(**

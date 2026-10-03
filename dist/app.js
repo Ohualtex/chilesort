@@ -1,5 +1,5 @@
 import { chileSort } from './chilesort.js';
-import { CARD_WIDTH, ROW_PITCH, MIN_GRID_WIDTH, canvasHeight, columnPositions, shuffleOrder, gridPositions, gridHeight } from './layout.js';
+import { CARD_WIDTH, CARD_HEIGHT, ROW_PITCH, MIN_GRID_WIDTH, canvasHeight, columnPositions, shuffleOrder, gridPositions, gridHeight } from './layout.js';
 
 const $ = id => document.getElementById(id);
 const input = $('items');
@@ -20,8 +20,52 @@ let positions = [];
 let previousWidth = 0;
 let arrangement = 'grid';
 let gridOrder = [];
+let followFrame = 0;
+let followTarget = 0;
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const cardTilt = index => [-3, 2, -2, 3, 1, -1][index % 6];
+
+function stopFollowing() {
+  cancelAnimationFrame(followFrame);
+  followFrame = 0;
+}
+
+function followCard(y) {
+  followTarget = Math.max(0, Math.min(stage.scrollHeight - stage.clientHeight, y + CARD_HEIGHT - stage.clientHeight * .7));
+  if (reducedMotion.matches) stage.scrollTop = followTarget;
+}
+
+function startFollowing(currentRun) {
+  stopFollowing();
+  followTarget = 0;
+  if (reducedMotion.matches) { stage.scrollTop = 0; return; }
+  let previousTime = performance.now();
+  const frame = time => {
+    if (currentRun !== run || mode !== 'running') { stopFollowing(); return; }
+    const remaining = followTarget - stage.scrollTop;
+    const easing = 1 - Math.exp(-(time - previousTime) / 90);
+    previousTime = time;
+    const step = Math.sign(remaining) * Math.max(1, Math.abs(remaining * easing));
+    stage.scrollTop = Math.abs(remaining) < 1 ? followTarget : stage.scrollTop + step;
+    followFrame = requestAnimationFrame(frame);
+  };
+  followFrame = requestAnimationFrame(frame);
+}
+
+async function finishFollowing(currentRun) {
+  followTarget = Math.max(0, stage.scrollHeight - stage.clientHeight);
+  if (reducedMotion.matches) stage.scrollTop = followTarget;
+  else await new Promise(resolve => {
+    const check = () => {
+      if (currentRun !== run || Math.abs(stage.scrollTop - followTarget) < 1) { resolve(); return; }
+      requestAnimationFrame(check);
+    };
+    check();
+  });
+  if (currentRun !== run) return false;
+  stopFollowing();
+  return true;
+}
 
 function readInput() {
   const values = input.value.split(',').map(value => value.trim()).filter(Boolean);
@@ -113,6 +157,7 @@ function syncCards(values) {
 }
 
 function clearResult() {
+  stopFollowing();
   $('status').className = 'status';
   $('status').textContent = '● UNSORTED';
   stage.classList.remove('finished');
@@ -173,6 +218,7 @@ async function sort() {
   const cards = [...tiles.children];
   const duration = reducedMotion.matches ? 0 : Math.min(1400, cards.length * 65);
   const started = performance.now();
+  startFollowing(currentRun);
   for (let index = 0; index < cards.length; index++) {
     const delay = cards.length <= 1 ? 0 : index * duration / (cards.length - 1);
     if (!reducedMotion.matches) await wait(Math.max(0, delay - (performance.now() - started)));
@@ -181,9 +227,11 @@ async function sort() {
     positions[index] = target;
     applyPosition(cards[index], target);
     cards[index].classList.add('chilean');
+    followCard(target.y);
   }
   await wait(reducedMotion.matches ? 0 : 650);
   if (currentRun !== run) return { cancelled: true };
+  if (!await finishFollowing(currentRun)) return { cancelled: true };
   mode = 'done';
   stage.classList.add('finished');
   $('status').classList.add('done');
@@ -200,6 +248,8 @@ async function sort() {
   $('result').classList.add('done');
   $('stage-caption').textContent = '* According to geography.';
   $('sort').innerHTML = 'Sorted <span>↓</span>';
+  await wait(reducedMotion.matches ? 0 : 500);
+  if (currentRun !== run) return { cancelled: true };
   unlock();
   $('sort').disabled = true;
   return { rows: column, status: 'geographically sorted' };
