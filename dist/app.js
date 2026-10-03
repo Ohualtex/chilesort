@@ -38,7 +38,7 @@ function followCard(card) {
 
 function updateFollowTarget() {
   if (!followedCard) return;
-  // Measure the CSS transition's rendered position, rather than its destination.
+  // Only settled cards become the camera target.
   const bottom = followedCard.getBoundingClientRect().bottom - stage.getBoundingClientRect().top - stage.clientTop + stage.scrollTop;
   followTarget = Math.max(followTarget, 0, Math.min(stage.scrollHeight - stage.clientHeight, bottom - stage.clientHeight * .7));
 }
@@ -47,11 +47,15 @@ function startFollowing(currentRun) {
   stopFollowing();
   followTarget = 0;
   if (reducedMotion.matches) { stage.scrollTop = 0; return; }
-  const frame = () => {
+  let previousTime = performance.now();
+  const frame = time => {
     if (currentRun !== run || mode !== 'running') { stopFollowing(); return; }
     updateFollowTarget();
-    // The card's own transition supplies easing; a second easing would lose it.
-    stage.scrollTop = followTarget;
+    const remaining = followTarget - stage.scrollTop;
+    const easing = 1 - Math.exp(-(time - previousTime) / 30);
+    previousTime = time;
+    const step = Math.sign(remaining) * Math.max(1, Math.abs(remaining * easing));
+    stage.scrollTop = Math.abs(remaining) < 1 ? followTarget : stage.scrollTop + step;
     followFrame = requestAnimationFrame(frame);
   };
   followFrame = requestAnimationFrame(frame);
@@ -117,7 +121,7 @@ function shuffleGrid() {
   const slots = gridPositions(Math.max(items.length, ...gridOrder.map(slot => slot + 1)), canvas.clientWidth);
   positions = gridOrder.map((slot, index) => ({ ...slots[slot], angle: cardTilt(index) }));
   [...tiles.children].forEach((tile, index) => {
-    tile.classList.remove('chilean');
+    tile.classList.remove('chilean', 'settled');
     applyPosition(tile, positions[index]);
   });
 }
@@ -129,7 +133,7 @@ function arrangeGrid(restoreOrder = true) {
   const slots = gridPositions(Math.max(items.length, ...gridOrder.map(slot => slot + 1)), canvas.clientWidth);
   positions = gridOrder.map((slot, index) => ({ ...slots[slot], angle: cardTilt(index) }));
   [...tiles.children].forEach((tile, index) => {
-    tile.classList.remove('chilean');
+    tile.classList.remove('chilean', 'settled');
     applyPosition(tile, positions[index]);
   });
 }
@@ -224,6 +228,8 @@ async function sort() {
   const cards = [...tiles.children];
   const duration = reducedMotion.matches ? 0 : Math.min(1400, cards.length * 65);
   const started = performance.now();
+  const movements = [];
+  let lastCompletedIndex = -1;
   startFollowing(currentRun);
   for (let index = 0; index < cards.length; index++) {
     const delay = cards.length <= 1 ? 0 : index * duration / (cards.length - 1);
@@ -233,9 +239,18 @@ async function sort() {
     positions[index] = target;
     applyPosition(cards[index], target);
     cards[index].classList.add('chilean');
-    followCard(cards[index]);
+    // Read animations after the style change so the transform transition exists.
+    const transitions = cards[index].getAnimations().filter(animation => animation.transitionProperty === 'transform');
+    movements.push(Promise.all(transitions.map(animation => animation.finished)).then(() => {
+      if (currentRun !== run || mode !== 'running') return;
+      cards[index].classList.add('settled');
+      if (index > lastCompletedIndex) {
+        lastCompletedIndex = index;
+        followCard(cards[index]);
+      }
+    }).catch(() => { /* Reset or a layout change can cancel a transition. */ }));
   }
-  await wait(reducedMotion.matches ? 0 : 650);
+  await Promise.all(movements);
   if (currentRun !== run) return { cancelled: true };
   if (!await finishFollowing(currentRun)) return { cancelled: true };
   mode = 'done';
