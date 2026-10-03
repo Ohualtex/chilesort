@@ -4,5 +4,5 @@
   "private": true,
   "type": "module",
   "description": "The world's narrowest sorting algorithm.",
-  "scripts": { "test": "node --test test/chilesort.test.js" }
+  "scripts": { "start": "node server.mjs", "test": "node --test test/chilesort.test.js test/layout.test.js", "check": "node --check dist/app.js" }
 }

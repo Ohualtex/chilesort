@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f4f2e9">
+  <meta name="description" content="No comparisons. No reordering. Just geography. Meet ChileSort: the world's narrowest sorting algorithm.">
+  <title>ChileSort — the world's narrowest sorting algorithm</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23ec3d30'/%3E%3Cpath d='M18 4l-3 7 1 5-3 6 3 6 1-8 2-8z' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="masthead"><a class="wordmark" href="./" aria-label="ChileSort home"><span class="mark">▥</span> chile<span>sort</span><span class="version">v1.0.0</span></a><span class="header-note">A VERY SERIOUS ALGORITHM <img class="flag chile-flag" src="chile-flag.svg" alt="Chile flag" width="30" height="20"></span></header>
+  <main>
+    <section class="intro"><div class="eyebrow"><span></span> GEOGRAPHY-DRIVEN DEVELOPMENT</div><h1>Why sort<br>when you can <em>Chile?</em></h1><p>The world's narrowest sorting algorithm.<br>No comparisons. No reordering. Just geography.</p></section>
+    <section class="workspace" aria-label="ChileSort playground">
+      <aside class="controls">
+        <div class="panel-label"><span>01 / THE INPUT</span></div>
+        <h2>Bring your mess.</h2><p>Anything goes. It all fits in Chile.</p>
+        <label for="items">YOUR ARRAY <span>comma-separated</span></label>
+        <textarea id="items" rows="4" spellcheck="false">🍕, {}, 🦆, 404, ☕, 🐛, 💾, NaN, 🛸, 👾, 🌮, :3</textarea>
+        <div class="input-footer"><span id="item-count">12 elements</span><button class="text-button" id="shuffle" type="button">Shuffle ↻</button></div>
+        <p class="input-error" id="input-error" role="alert" hidden></p>
+        <button id="sort" class="sort-button" type="button">ChileSort <span>↓</span></button>
+        <button id="reset" class="reset-button" type="button">↺ Reset geography</button>
+        <div class="rule"><span class="asterisk">✳</span><p>No two elements shall be<br>east or west of each other.</p></div>
+      </aside>
+      <div class="visualizer">
+        <div class="visualizer-heading"><span>02 / THE GEOGRAPHY</span><span class="status" id="status">● UNSORTED</span></div>
+        <div class="stage" id="stage" tabindex="0" role="region" aria-label="Scrollable array canvas"><div class="canvas" id="canvas"><div class="grid-lines" aria-hidden="true"></div><span class="compass north" aria-hidden="true">N ↑</span><span class="compass south" aria-hidden="true">↓ S</span><div class="country-outline" aria-hidden="true"><svg viewBox="0 0 100 500" preserveAspectRatio="none"><path d="M56 5 43 46 48 71 39 102 45 130 33 158 38 185 30 218 35 244 27 279 32 310 24 337 32 370 31 397 43 424 40 450 57 488 67 475 52 445 55 418 43 393 46 363 38 335 47 308 41 278 51 245 44 216 54 184 48 159 60 128 53 102 63 72 58 48 70 10Z"/></svg></div><div id="tiles" role="list" aria-label="Array elements"></div><div class="stage-caption" id="stage-caption">A perfectly ordinary mess.</div><div class="map-stamp" id="map-stamp" aria-hidden="true"><img class="chile-flag" src="chile-flag.svg" alt="" width="30" height="20"> CERTIFIED<br>LONG & NARROW</div></div></div>
+        <div class="readout"><div><span>COMPARISONS</span><strong>0</strong></div><div><span>WIDTH</span><strong id="width-value">Too much</strong></div><div><span>ACTUALLY SORTED?</span><strong id="sorted-value">Who cares.</strong></div></div>
+      </div>
+    </section>
+    <div class="result" id="result" role="status" aria-live="polite">Ready to make a geographical mistake.</div>
+    <section class="source"><div><div class="eyebrow">THE ENTIRE ALGORITHM</div><h2>Less computer science.<br>More South America.</h2><p>Order preserved. Expectations rearranged.</p></div><pre><code><span class="code-comment">// You're welcome.</span>
+<span class="code-red">function</span> chileSort(array) {
+  <span class="code-red">return</span> array.map(item =&gt; [item]);
+}</code></pre></section>
+  </main>
+  <footer><span>CHILESORT © 2026</span><span>Inspired by bad algorithms & excellent geography.</span><span>Made to go south. ↓</span></footer>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
