@@ -43,10 +43,11 @@ There is no count or height slider. The themed scrollbars navigate overflowing c
 The input and output scroll internally when their content exceeds the default height.
 Shuffle exchanges the same cards between existing grid slots without changing input order.
 Sort moves those same cards directly into a column; shuffle or reset to play again.
-The canvas follows the last card that has finished moving into the column. Cards
-still in motion do not advance the scroll target. Once the final card
+The canvas follows the growing column from the start of sorting, measuring its
+visible edge while cards are still moving into it. Its advancing edge stays near the viewport center within
+the available scroll range. Once the final card
 settles, the view reaches the bottom and the CERTIFIED LONG & NARROW stamp appears.
-New card movements wait for visible space and for the scroll to catch up.
+Card movements keep their original timing without waiting for the scroll to catch up.
 Reset cancels sorting and smoothly returns the canvas to the top. Starting again
 cancels that return. Reduced-motion preferences skip animated scrolling.
 Reset restores the four-column grid. Shuffle preserves its rows, columns, and slot positions.
