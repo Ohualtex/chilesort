@@ -46,7 +46,9 @@ Sort moves those same cards directly into a column; shuffle or reset to play aga
 The canvas follows the last card that has finished moving into the column. Cards
 still in motion do not advance the scroll target. Once the final card
 settles, the view reaches the bottom and the CERTIFIED LONG & NARROW stamp appears.
-Reset cancels the follow animation. Reduced-motion preferences skip animated scrolling.
+New card movements wait for visible space and for the scroll to catch up.
+Reset cancels sorting and smoothly returns the canvas to the top. Starting again
+cancels that return. Reduced-motion preferences skip animated scrolling.
 Reset restores the four-column grid. Shuffle preserves its rows, columns, and slot positions.
 Reduced-motion preferences are respected. Interface content is rendered as text.
 Clearing the entire input removes all cards and displays **Chile exists :(**

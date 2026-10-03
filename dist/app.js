@@ -1,5 +1,5 @@
 import { chileSort } from './chilesort.js';
-import { CARD_WIDTH, ROW_PITCH, MIN_GRID_WIDTH, canvasHeight, columnPositions, shuffleOrder, gridPositions, gridHeight } from './layout.js';
+import { CARD_WIDTH, CARD_HEIGHT, ROW_PITCH, MIN_GRID_WIDTH, canvasHeight, columnPositions, shuffleOrder, gridPositions, gridHeight } from './layout.js';
 
 const $ = id => document.getElementById(id);
 const input = $('items');
@@ -21,6 +21,7 @@ let previousWidth = 0;
 let arrangement = 'grid';
 let gridOrder = [];
 let followFrame = 0;
+let resetFrame = 0;
 let followTarget = 0;
 let followedCard = null;
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -28,12 +29,38 @@ const cardTilt = index => [-3, 2, -2, 3, 1, -1][index % 6];
 
 function stopFollowing() {
   cancelAnimationFrame(followFrame);
+  cancelAnimationFrame(resetFrame);
   followFrame = 0;
+  resetFrame = 0;
   followedCard = null;
 }
 
 function followCard(card) {
   followedCard = card;
+}
+
+function scrollToTop(currentRun) {
+  if (reducedMotion.matches) { stage.scrollTop = 0; return; }
+  const start = stage.scrollTop;
+  const started = performance.now();
+  const frame = time => {
+    if (currentRun !== run) return;
+    const progress = Math.min(1, (time - started) / 450);
+    stage.scrollTop = start * (1 - progress) ** 3;
+    resetFrame = progress < 1 ? requestAnimationFrame(frame) : 0;
+  };
+  resetFrame = requestAnimationFrame(frame);
+}
+
+async function waitForScrollRoom(index, currentRun) {
+  if (reducedMotion.matches) return currentRun === run;
+  const bottom = 44 + index * ROW_PITCH + CARD_HEIGHT;
+  while (currentRun === run && mode === 'running') {
+    // Keep the pipeline inside the viewport and pause when the camera falls behind.
+    if (bottom <= stage.scrollTop + stage.clientHeight * .9 && followTarget - stage.scrollTop <= 24) return true;
+    await new Promise(resolve => requestAnimationFrame(resolve));
+  }
+  return false;
 }
 
 function updateFollowTarget() {
@@ -191,6 +218,7 @@ function reset() {
   clearResult();
   const values = validate();
   if (values) { syncCards(values); arrangeGrid(); }
+  scrollToTop(run);
 }
 
 function editInput() {
@@ -235,6 +263,7 @@ async function sort() {
     const delay = cards.length <= 1 ? 0 : index * duration / (cards.length - 1);
     if (!reducedMotion.matches) await wait(Math.max(0, delay - (performance.now() - started)));
     if (currentRun !== run) return { cancelled: true };
+    if (!await waitForScrollRoom(index, currentRun)) return { cancelled: true };
     const target = { x: (canvas.clientWidth - CARD_WIDTH) / 2, y: 44 + index * ROW_PITCH, angle: 0 };
     positions[index] = target;
     applyPosition(cards[index], target);
