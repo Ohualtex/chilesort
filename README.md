@@ -1,4 +1,4 @@
-# ChileSort 🇨🇱
+# ChileSort <img src="./dist/chile-flag.svg" alt="Chile flag" width="30" height="20">
 
 The world's narrowest sorting algorithm.
 
