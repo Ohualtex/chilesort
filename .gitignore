@@ -1,0 +1,9 @@
+node_modules/
+.sites-runtime/
+.openai/
+.env
+.env.*
+!.env.example
+*.zip
+/checkpoint/
+/artifacts/
