@@ -1,5 +1,6 @@
-import { chileSort } from './chilesort.js';
-import { CARD_WIDTH, ROW_PITCH, MIN_GRID_WIDTH, canvasHeight, columnPositions, shuffleOrder, gridPositions, gridHeight } from './layout.js';
+import { chileSort, MAX_ITEMS, validateItems } from './chilesort.js';
+import { CARD_WIDTH, CARD_HEIGHT, MIN_GRID_WIDTH, canvasHeight, columnPositions, shuffleOrder, gridPositions, gridHeight } from './layout.js';
+import { MOVE_DURATION, sampleMotion, intersectsViewport, intersectsColumn } from './motion.js';
 
 const $ = id => document.getElementById(id);
 const input = $('items');
@@ -20,82 +21,106 @@ let positions = [];
 let previousWidth = 0;
 let arrangement = 'grid';
 let gridOrder = [];
-let followFrame = 0;
-let resetFrame = 0;
+let renderFrame = 0;
 let followTarget = 0;
-let followCards = null;
+let motions = [];
+let cards = [];
+let sortLaunches = [];
+let sortCompletion = null;
+let resetScroll = null;
+let viewportWidth = 0;
+let viewportHeight = 0;
+let contentHeight = 0;
+const cardWidths = new WeakMap();
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const cardTilt = index => [-3, 2, -2, 3, 1, -1][index % 6];
 
 function stopFollowing() {
-  cancelAnimationFrame(followFrame);
-  cancelAnimationFrame(resetFrame);
-  followFrame = 0;
-  resetFrame = 0;
-  followCards = null;
+  resetScroll = null;
+  followTarget = 0;
+  sortCompletion?.resolve(false);
+  sortCompletion = null;
 }
 
 function scrollToTop(currentRun) {
-  if (reducedMotion.matches) { stage.scrollTop = 0; return; }
-  const start = stage.scrollTop;
-  const started = performance.now();
-  const frame = time => {
-    if (currentRun !== run) return;
-    const progress = Math.min(1, (time - started) / 450);
-    stage.scrollTop = start * (1 - progress) ** 3;
-    resetFrame = progress < 1 ? requestAnimationFrame(frame) : 0;
-  };
-  resetFrame = requestAnimationFrame(frame);
+  resetScroll = { run: currentRun, from: stage.scrollTop, start: performance.now() };
+  requestRender();
 }
 
-function updateFollowTarget() {
-  if (!followCards?.length) return;
-  const centerX = canvas.getBoundingClientRect().left + canvas.clientWidth / 2;
-  const top = stage.getBoundingClientRect().top + stage.clientTop;
-  let frontier = 0;
-  // Follow the visible column as it forms, including cards still moving into it.
-  // Cards that have not reached the column must not pull the view into empty space.
-  for (const card of followCards) {
-    const bounds = card.getBoundingClientRect();
-    if (bounds.left > centerX || bounds.right < centerX) continue;
-    frontier = Math.max(frontier, bounds.top + bounds.height / 2 - top + stage.scrollTop);
+function samplePositions(time) {
+  let active = false;
+  for (let index = 0; index < motions.length; index++) {
+    if (!motions[index]) continue;
+    if (sampleMotion(motions[index], time, positions[index])) motions[index] = null;
+    else active = true;
   }
-  followTarget = Math.max(followTarget, 0, Math.min(stage.scrollHeight - stage.clientHeight, frontier - stage.clientHeight / 2));
+  return active;
 }
 
-function startFollowing(currentRun, cards) {
-  stopFollowing();
-  followCards = cards;
-  followTarget = 0;
-  if (reducedMotion.matches) { stage.scrollTop = 0; return; }
-  const frame = () => {
-    if (currentRun !== run || mode !== 'running') { stopFollowing(); return; }
-    updateFollowTarget();
-    stage.scrollTop = followTarget;
-    followFrame = requestAnimationFrame(frame);
-  };
-  followFrame = requestAnimationFrame(frame);
+function requestRender() {
+  if (!renderFrame) renderFrame = requestAnimationFrame(render);
 }
 
-async function finishFollowing(currentRun) {
-  followCards = null;
-  followTarget = Math.max(0, stage.scrollHeight - stage.clientHeight);
-  if (reducedMotion.matches) stage.scrollTop = followTarget;
-  else await new Promise(resolve => {
-    const check = () => {
-      if (currentRun !== run || Math.abs(stage.scrollTop - followTarget) < 1) { resolve(); return; }
-      requestAnimationFrame(check);
-    };
-    check();
+function moveCards(targets, stagger = 0) {
+  const now = performance.now();
+  samplePositions(now);
+  motions = targets.map((to, index) => {
+    const from = positions[index] ? { ...positions[index] } : { ...to };
+    const start = now + (targets.length <= 1 ? 0 : index * stagger / (targets.length - 1));
+    if (mode === 'running') sortLaunches[index] = start;
+    const unchanged = from.x === to.x && from.y === to.y && from.angle === to.angle;
+    return { from, to, start, duration: reducedMotion.matches || unchanged ? 0 : MOVE_DURATION };
   });
-  if (currentRun !== run) return false;
-  stopFollowing();
-  return true;
+  positions = targets.map((to, index) => positions[index] || { ...to });
+  requestRender();
+}
+
+function render(time) {
+  renderFrame = 0;
+  const active = samplePositions(time);
+  let scrollTop = stage.scrollTop;
+  const maxScroll = Math.max(0, contentHeight - viewportHeight);
+  if (resetScroll?.run === run) {
+    const progress = reducedMotion.matches ? 1 : Math.min(1, (time - resetScroll.start) / 450);
+    scrollTop = resetScroll.from * (1 - progress) ** 3;
+    if (progress === 1) resetScroll = null;
+    stage.scrollTop = scrollTop;
+  }
+  if (mode === 'running') {
+    let frontier = 0;
+    for (let index = 0; index < cards.length; index++) {
+      if (time < sortLaunches[index]) continue;
+      if (intersectsColumn(positions[index], cardWidths.get(cards[index]), CARD_HEIGHT, viewportWidth / 2, CARD_WIDTH)) {
+        frontier = Math.max(frontier, positions[index].y + CARD_HEIGHT / 2);
+      }
+    }
+    followTarget = active ? Math.max(followTarget, 0, Math.min(maxScroll, frontier - viewportHeight / 2)) : maxScroll;
+    scrollTop = followTarget;
+    stage.scrollTop = scrollTop;
+  }
+  // Keep node identity, but only give nearby cards layout and painting work.
+  for (let index = 0; index < cards.length; index++) {
+    const card = cards[index];
+    const position = positions[index];
+    if (!position) continue;
+    const visible = intersectsViewport(position, cardWidths.get(card), CARD_HEIGHT, scrollTop, viewportHeight);
+    if (card.hidden === visible) card.hidden = !visible;
+    if (!visible) continue;
+    const started = mode === 'done' || (mode === 'running' && time >= sortLaunches[index]);
+    card.classList.toggle('chilean', started);
+    card.classList.toggle('settled', started && !motions[index]);
+    applyPosition(card, position);
+  }
+  if (!active && mode === 'running' && sortCompletion?.run === run) {
+    sortCompletion.resolve(true);
+    sortCompletion = null;
+  }
+  if (active || resetScroll) requestRender();
 }
 
 function readInput() {
   const values = input.value.split(',').map(value => value.trim()).filter(Boolean);
-  if (values.some(value => [...value].length > 12)) throw new Error('Keep each element to 12 characters or fewer. Narrow country, remember?');
+  validateItems(values);
   return values;
 }
 
@@ -117,14 +142,17 @@ function validate() {
 
 function resizeCanvas() {
   const width = Math.max(MIN_GRID_WIDTH, stage.clientWidth);
+  viewportWidth = width;
+  viewportHeight = stage.clientHeight;
   canvas.style.width = `${width}px`;
   const slotCount = Math.max(items.length, ...gridOrder.map(slot => slot + 1));
   const height = arrangement === 'grid' ? gridHeight(slotCount) : canvasHeight(items.length, width);
-  canvas.style.height = `${Math.max(stage.clientHeight, height)}px`;
+  contentHeight = Math.max(viewportHeight, height);
+  canvas.style.height = `${contentHeight}px`;
 }
 
 function applyPosition(tile, position) {
-  const x = position.x + (CARD_WIDTH - tile.offsetWidth) / 2;
+  const x = position.x + (CARD_WIDTH - cardWidths.get(tile)) / 2;
   tile.style.transform = `translate(${x}px, ${position.y}px) rotate(${position.angle}deg)`;
 }
 
@@ -135,11 +163,7 @@ function shuffleGrid() {
   const currentSlots = gridOrder.length === items.length ? gridOrder : items.map((_, index) => index);
   gridOrder = order.map(index => currentSlots[index]);
   const slots = gridPositions(Math.max(items.length, ...gridOrder.map(slot => slot + 1)), canvas.clientWidth);
-  positions = gridOrder.map((slot, index) => ({ ...slots[slot], angle: cardTilt(index) }));
-  [...tiles.children].forEach((tile, index) => {
-    tile.classList.remove('chilean', 'settled');
-    applyPosition(tile, positions[index]);
-  });
+  moveCards(gridOrder.map((slot, index) => ({ ...slots[slot], angle: cardTilt(index) })));
 }
 
 function arrangeGrid(restoreOrder = true) {
@@ -147,39 +171,54 @@ function arrangeGrid(restoreOrder = true) {
   resizeCanvas();
   if (restoreOrder || gridOrder.length !== items.length) gridOrder = items.map((_, index) => index);
   const slots = gridPositions(Math.max(items.length, ...gridOrder.map(slot => slot + 1)), canvas.clientWidth);
-  positions = gridOrder.map((slot, index) => ({ ...slots[slot], angle: cardTilt(index) }));
-  [...tiles.children].forEach((tile, index) => {
-    tile.classList.remove('chilean', 'settled');
-    applyPosition(tile, positions[index]);
-  });
+  moveCards(gridOrder.map((slot, index) => ({ ...slots[slot], angle: cardTilt(index) })));
+}
+
+function measureWidths(measuredCards) {
+  const hidden = measuredCards.map(card => card.hidden);
+  measuredCards.forEach(card => { card.hidden = false; });
+  measuredCards.forEach(card => { cardWidths.set(card, card.offsetWidth); });
+  measuredCards.forEach((card, index) => { card.hidden = hidden[index]; });
 }
 
 // Only add/remove when the input length changes. Surviving cards keep identity.
 function syncCards(values) {
-  const existingCount = tiles.children.length;
+  if (values.length === items.length && values.every((value, index) => value === items[index])) return;
   gridOrder = gridOrder.slice(0, values.length);
   const usedSlots = new Set(gridOrder);
+  let slot = 0;
   while (gridOrder.length < values.length) {
-    let slot = 0;
     while (usedSlots.has(slot)) slot++;
     gridOrder.push(slot);
     usedSlots.add(slot);
   }
   while (tiles.children.length > values.length) tiles.lastElementChild.remove();
-  while (tiles.children.length < values.length) {
+  const additions = document.createDocumentFragment();
+  for (let index = tiles.children.length; index < values.length; index++) {
     const tile = document.createElement('div');
     tile.className = 'tile';
+    tile.hidden = true;
     tile.setAttribute('role', 'listitem');
-    tiles.append(tile);
+    additions.append(tile);
   }
+  tiles.append(additions);
   items = values;
+  cards = [...tiles.children];
+  positions.length = Math.min(positions.length, values.length);
+  motions.length = Math.min(motions.length, values.length);
   emptyState.hidden = values.length > 0;
-  [...tiles.children].forEach((tile, index) => {
-    if (tile.textContent !== values[index]) tile.textContent = values[index];
+  const changed = [];
+  cards.forEach((tile, index) => {
+    if (tile.textContent !== values[index]) {
+      tile.textContent = values[index];
+      changed.push(tile);
+    }
     tile.title = values[index];
+    tile.setAttribute('aria-posinset', index + 1);
+    tile.setAttribute('aria-setsize', values.length);
   });
-  resizeCanvas();
-  if (existingCount !== values.length || positions.length !== values.length) arrangeGrid(false);
+  // Measure widths together after content changes, before any transform writes.
+  measureWidths(changed);
 }
 
 function clearResult() {
@@ -228,6 +267,7 @@ async function sort() {
   // Never rebuild or scatter on Sort. These exact nodes move from where they are.
   syncCards(values);
   const column = chileSort(values);
+  stopFollowing();
   const currentRun = ++run;
   mode = 'running';
   arrangement = 'column';
@@ -242,31 +282,10 @@ async function sort() {
   $('result').className = 'result';
   $('result').textContent = 'Moving everything south. Please respect the borders.';
   $('stage-caption').textContent = 'The Pacific is on your left.';
-  const cards = [...tiles.children];
   const duration = reducedMotion.matches ? 0 : Math.min(1400, cards.length * 65);
-  const started = performance.now();
-  const movements = [];
-  const movingCards = [];
-  startFollowing(currentRun, movingCards);
-  for (let index = 0; index < cards.length; index++) {
-    const delay = cards.length <= 1 ? 0 : index * duration / (cards.length - 1);
-    if (!reducedMotion.matches) await wait(Math.max(0, delay - (performance.now() - started)));
-    if (currentRun !== run) return { cancelled: true };
-    const target = { x: (canvas.clientWidth - CARD_WIDTH) / 2, y: 44 + index * ROW_PITCH, angle: 0 };
-    positions[index] = target;
-    applyPosition(cards[index], target);
-    cards[index].classList.add('chilean');
-    // Read animations after the style change so the transform transition exists.
-    const transitions = cards[index].getAnimations().filter(animation => animation.transitionProperty === 'transform');
-    movingCards.push(cards[index]);
-    movements.push(Promise.all(transitions.map(animation => animation.finished)).then(() => {
-      if (currentRun !== run || mode !== 'running') return;
-      cards[index].classList.add('settled');
-    }).catch(() => { /* Reset or a layout change can cancel a transition. */ }));
-  }
-  await Promise.all(movements);
-  if (currentRun !== run) return { cancelled: true };
-  if (!await finishFollowing(currentRun)) return { cancelled: true };
+  const completed = new Promise(resolve => { sortCompletion = { run: currentRun, resolve }; });
+  moveCards(columnPositions(items.length, viewportWidth), duration);
+  if (!await completed || currentRun !== run) return { cancelled: true };
   mode = 'done';
   stage.classList.add('finished');
   $('status').classList.add('done');
@@ -301,34 +320,35 @@ $('shuffle').addEventListener('click', () => {
   const values = validate();
   if (values) { syncCards(values); shuffleGrid(); }
 });
+stage.addEventListener('scroll', requestRender, { passive: true });
 new ResizeObserver(() => {
   const width = stage.clientWidth;
   if (width === previousWidth) return;
   const oldWidth = previousWidth;
-  const oldHeight = canvas.clientHeight;
   previousWidth = width;
   if (!oldWidth) return;
   resizeCanvas();
   if (arrangement === 'grid') { arrangeGrid(false); return; }
-  const height = canvas.clientHeight;
-  const column = columnPositions(items.length, canvas.clientWidth);
-  [...tiles.children].forEach((tile, index) => {
-    const position = mode === 'done' || tile.classList.contains('chilean')
-      ? column[index]
-      : {
-        ...positions[index],
-        x: 24 + Math.max(0, positions[index].x - 24) * Math.max(0, width - 108) / Math.max(1, oldWidth - 108),
-        y: 52 + Math.max(0, positions[index].y - 52) * Math.max(0, height - 142) / Math.max(1, oldHeight - 142)
-      };
-    positions[index] = position;
-    applyPosition(tile, position);
-  });
+  const now = performance.now();
+  samplePositions(now);
+  const column = columnPositions(items.length, viewportWidth);
+  if (mode === 'running') {
+    motions = column.map((to, index) => {
+      const existing = motions[index];
+      const start = Math.max(now, sortLaunches[index]);
+      const end = existing ? existing.start + existing.duration : now;
+      return { from: { ...positions[index] }, to, start, duration: Math.max(0, end - start) };
+    });
+  } else {
+    positions = column;
+    motions = [];
+  }
+  requestRender();
 }).observe(stage);
 reset();
 document.fonts.ready.then(() => {
-  [...tiles.children].forEach((tile, index) => {
-    if (positions[index]) applyPosition(tile, positions[index]);
-  });
+  measureWidths(cards);
+  requestRender();
 });
 
 if (document.modelContext?.registerTool) {
@@ -337,9 +357,10 @@ if (document.modelContext?.registerTool) {
     Promise.resolve(document.modelContext.registerTool({
       name: 'chilesort_array',
       description: 'Arrange the supplied array into a single vertical column in the ChileSort playground, preserving its order.',
-      inputSchema: { type: 'object', properties: { items: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1, maxLength: 12 } } }, required: ['items'], additionalProperties: false },
+      inputSchema: { type: 'object', properties: { items: { type: 'array', minItems: 1, maxItems: MAX_ITEMS, items: { type: 'string', minLength: 1, maxLength: 12 } } }, required: ['items'], additionalProperties: false },
       annotations: { readOnlyHint: false, untrustedContentHint: false },
       async execute(args) {
+        validateItems(args?.items);
         if (!args || !Array.isArray(args.items) || !args.items.length || args.items.some(item => typeof item !== 'string' || !item.trim() || [...item].length > 12 || item.includes(','))) throw new Error('Use nonempty strings, at most 12 characters each, without commas.');
         if (mode === 'running') throw new Error('ChileSort is already running.');
         input.value = args.items.join(', ');
