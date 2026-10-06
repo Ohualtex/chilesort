@@ -33,6 +33,9 @@ npm start
 
 Open http://127.0.0.1:5173. Enter comma-separated items (up to 12 characters each),
 then press ChileSort. Cards initially appear in rows of four.
+The playground accepts up to 4,270 nonempty items. Larger inputs display
+`too long for Chile D:` and disable sorting until corrected, preserving the last
+valid card arrangement. The same limit applies to the WebMCP tool.
 New items extend the grid downward; the fixed output viewport scrolls to reveal them.
 Cards are 34 pixels tall and expand to fit their contents, with a minimum width
 of 60 pixels and a fixed 42-pixel vertical pitch after sorting.
@@ -43,11 +46,14 @@ There is no count or height slider. The themed scrollbars navigate overflowing c
 The input and output scroll internally when their content exceeds the default height.
 Shuffle exchanges the same cards between existing grid slots without changing input order.
 Sort moves those same cards directly into a column; shuffle or reset to play again.
-The canvas follows the growing column from the start of sorting, measuring its
-visible edge while cards are still moving into it. Its advancing edge stays near the viewport center within
-the available scroll range. Once the final card
+The canvas follows the growing column from the start of sorting, using the same
+animation clock as the cards. Its advancing edge stays near the viewport center
+within the available scroll range. Once the final card
 settles, the view reaches the bottom and the CERTIFIED LONG & NARROW stamp appears.
 Card movements keep their original timing without waiting for the scroll to catch up.
+Only cards near the viewport are rendered; off-screen cards retain their identity,
+order, and animation progress. This keeps large lists from creating thousands of
+simultaneous browser animations. Scrolling reveals the corresponding cards.
 Reset cancels sorting and smoothly returns the canvas to the top. Starting again
 cancels that return. Reduced-motion preferences skip animated scrolling.
 Reset restores the four-column grid. Shuffle preserves its rows, columns, and slot positions.
